@@ -5,8 +5,16 @@ export interface UploadPolicy {
   uploadDir: string;
 }
 
+export interface BrowserUploadPolicy extends UploadPolicy {
+  browserUploadDir: string;
+}
+
+function isWindowsDrivePath(value: string): boolean {
+  return /^[a-zA-Z]:[\\/]/.test(value);
+}
+
 function isAbsolutePath(value: string): boolean {
-  return path.isAbsolute(value) || path.win32.isAbsolute(value);
+  return path.isAbsolute(value) || isWindowsDrivePath(value);
 }
 
 function normalizeForContainment(value: string): string {
@@ -58,4 +66,31 @@ export function resolveAllowedUploadPath(
   }
 
   return realInputPath;
+}
+
+export function toBrowserUploadPath(
+  localValidatedPath: string,
+  policy: BrowserUploadPolicy,
+): string {
+  if (!localValidatedPath || !isAbsolutePath(localValidatedPath)) {
+    throw new Error("Validated upload file path must be absolute");
+  }
+  if (!policy.browserUploadDir || !isAbsolutePath(policy.browserUploadDir)) {
+    throw new Error("COMET_UPLOAD_DIR browser path must be absolute");
+  }
+
+  const normalizedFile = normalizeForContainment(localValidatedPath);
+  const normalizedUploadDir = normalizeForContainment(policy.uploadDir);
+  if (!isContainedWithin(normalizedFile, normalizedUploadDir)) {
+    throw new Error("Validated upload file path must be under COMET_UPLOAD_DIR");
+  }
+
+  const relativePath = path.posix.relative(normalizedUploadDir, normalizedFile);
+  if (!relativePath || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    return policy.browserUploadDir;
+  }
+
+  return isWindowsDrivePath(policy.browserUploadDir)
+    ? path.win32.join(policy.browserUploadDir, ...relativePath.split("/"))
+    : path.join(policy.browserUploadDir, ...relativePath.split("/"));
 }

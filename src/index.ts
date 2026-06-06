@@ -16,7 +16,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { cometClient, DEFAULT_PORT } from "./cdp-client.js";
 import { cometConfig } from "./config.js";
-import { resolveAllowedUploadPath } from "./upload-policy.js";
+import { resolveAllowedUploadPath, toBrowserUploadPath } from "./upload-policy.js";
 import { getServerCapabilities } from "./server-metadata.js";
 import { cometAI } from "./comet-ai.js";
 import {
@@ -769,7 +769,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         // Perform the upload
-        const result = await cometClient.uploadFile(stagedPath!, selector);
+        const browserUploadPath = toBrowserUploadPath(stagedPath!, {
+          uploadDir: cometConfig.uploadDir,
+          browserUploadDir: cometConfig.browserUploadDir,
+        });
+        const result = await cometClient.uploadFile(browserUploadPath, selector);
 
         if (result.success) {
           return { content: [{ type: "text", text: result.message }] };

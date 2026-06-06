@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from
 import { tmpdir } from "os";
 import path from "path";
 import { describe, expect, it } from "vitest";
-import { resolveAllowedUploadPath } from "../../src/upload-policy.js";
+import { resolveAllowedUploadPath, toBrowserUploadPath } from "../../src/upload-policy.js";
 
 function fixture() {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "comet-upload-policy-")));
@@ -67,5 +67,23 @@ describe("resolveAllowedUploadPath", () => {
     const { uploadDir } = fixture();
 
     expect(() => resolveAllowedUploadPath(path.join(uploadDir, "missing.pdf"), { uploadDir })).toThrow(/not found|missing/i);
+  });
+});
+
+describe("toBrowserUploadPath", () => {
+  it("maps a validated WSL-mounted staging file to the matching Windows browser path", () => {
+    expect(toBrowserUploadPath(
+      "/mnt/d/Users/infra/AppData/Local/comet-mcp-uploads/report.pdf",
+      {
+        uploadDir: "/mnt/d/Users/infra/AppData/Local/comet-mcp-uploads",
+        browserUploadDir: "D:\\Users\\infra\\AppData\\Local\\comet-mcp-uploads",
+      },
+    )).toBe("D:\\Users\\infra\\AppData\\Local\\comet-mcp-uploads\\report.pdf");
+  });
+
+  it("keeps paths unchanged when browserUploadDir matches the local staging directory", () => {
+    const { uploadDir, insideFile } = fixture();
+
+    expect(toBrowserUploadPath(insideFile, { uploadDir, browserUploadDir: uploadDir })).toBe(insideFile);
   });
 });

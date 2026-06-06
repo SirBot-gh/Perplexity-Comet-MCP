@@ -53,7 +53,7 @@ describe("getCometConfig", () => {
     expect(userDataDir).not.toContain("/Perplexity/Comet");
   });
 
-  it("defaults WSL userDataDir and uploadDir to Windows profile paths when Windows env vars are absent", () => {
+  it("defaults WSL profile launch to Windows path and upload staging to WSL mount when Windows env vars are absent", () => {
     const wslConfig = getCometConfig({}, {
       platform: "wsl",
       homeDir: "/home/agent",
@@ -65,13 +65,16 @@ describe("getCometConfig", () => {
       "C:\\Users\\agent\\AppData\\Local\\comet-mcp-agent-profile",
     );
     expect(wslConfig.uploadDir).toBe(
+      "/mnt/c/Users/agent/AppData/Local/comet-mcp-uploads",
+    );
+    expect(wslConfig.browserUploadDir).toBe(
       "C:\\Users\\agent\\AppData\\Local\\comet-mcp-uploads",
     );
     expect(wslConfig.userDataDir).not.toContain("/home/");
     expect(wslConfig.uploadDir).not.toContain("/home/");
   });
 
-  it("uses LOCALAPPDATA for WSL defaults when available", () => {
+  it("uses LOCALAPPDATA for WSL profile defaults and a matching WSL-mounted upload directory", () => {
     const wslConfig = getCometConfig({}, {
       platform: "wsl",
       homeDir: "/home/agent",
@@ -83,6 +86,9 @@ describe("getCometConfig", () => {
       "D:\\Users\\infra\\AppData\\Local\\comet-mcp-agent-profile",
     );
     expect(wslConfig.uploadDir).toBe(
+      "/mnt/d/Users/infra/AppData/Local/comet-mcp-uploads",
+    );
+    expect(wslConfig.browserUploadDir).toBe(
       "D:\\Users\\infra\\AppData\\Local\\comet-mcp-uploads",
     );
   });

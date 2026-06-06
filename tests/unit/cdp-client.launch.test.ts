@@ -11,6 +11,7 @@ const baseConfig: CometConfig = {
   cometPath: "/Applications/Comet.app/Contents/MacOS/Comet",
   userDataDir: "/Users/tester/Library/Application Support/comet-mcp-agent-profile",
   uploadDir: "/Users/tester/Library/Application Support/comet-mcp-uploads",
+  browserUploadDir: "/Users/tester/Library/Application Support/comet-mcp-uploads",
   allowCometRestart: false,
 };
 

@@ -20,6 +20,7 @@ export interface CometConfig {
   cometPath: string;
   userDataDir: string;
   uploadDir: string;
+  browserUploadDir: string;
   allowCometRestart: boolean;
 }
 
@@ -207,17 +208,48 @@ function validateUserDataDir(
   return value;
 }
 
-function validateUploadDir(
+function windowsPathToWslMount(value: string): string | undefined {
+  const match = value.match(/^([a-zA-Z]):[\\/](.*)$/);
+  if (!match) return undefined;
+
+  const drive = match[1].toLowerCase();
+  const rest = match[2].replace(/\\/g, "/");
+  return `/mnt/${drive}/${rest}`;
+}
+
+function wslMountToWindowsPath(value: string): string | undefined {
+  const match = value.match(/^\/mnt\/([a-zA-Z])\/(.*)$/);
+  if (!match) return undefined;
+
+  const drive = match[1].toUpperCase();
+  const rest = match[2].replace(/\//g, "\\");
+  return `${drive}:\\${rest}`;
+}
+
+function validateUploadDirs(
   env: NodeJS.ProcessEnv,
   platformInfo: Required<CometPlatformInfo>,
-): string {
-  const defaultValue = scopedJoin(
+): Pick<CometConfig, "uploadDir" | "browserUploadDir"> {
+  const defaultBrowserValue = scopedJoin(
     platformInfo,
     defaultAppSupportDir(platformInfo),
     "comet-mcp-uploads",
   );
-  const value = env.COMET_UPLOAD_DIR?.trim() || defaultValue;
-  return requireAbsoluteNonRoot("COMET_UPLOAD_DIR", value);
+  const defaultLocalValue = platformInfo.platform === "wsl"
+    ? windowsPathToWslMount(defaultBrowserValue) ?? defaultBrowserValue
+    : defaultBrowserValue;
+  const uploadDir = requireAbsoluteNonRoot(
+    "COMET_UPLOAD_DIR",
+    env.COMET_UPLOAD_DIR?.trim() || defaultLocalValue,
+  );
+  const browserUploadDir = requireAbsoluteNonRoot(
+    "COMET_UPLOAD_DIR browser path",
+    platformInfo.platform === "wsl"
+      ? wslMountToWindowsPath(uploadDir) ?? uploadDir
+      : uploadDir,
+  );
+
+  return { uploadDir, browserUploadDir };
 }
 
 function validateAllowRestart(env: NodeJS.ProcessEnv): boolean {
@@ -235,13 +267,15 @@ export function getCometConfig(
   const resolvedPlatformInfo = withDefaults(
     platformInfo ?? { platform: isWsl() ? "wsl" : osPlatform() },
   );
+  const uploadDirs = validateUploadDirs(env, resolvedPlatformInfo);
 
   return Object.freeze({
     host: validateHost(env),
     port: validatePort(env),
     cometPath: env.COMET_PATH?.trim() || defaultCometPath(resolvedPlatformInfo),
     userDataDir: validateUserDataDir(env, resolvedPlatformInfo),
-    uploadDir: validateUploadDir(env, resolvedPlatformInfo),
+    uploadDir: uploadDirs.uploadDir,
+    browserUploadDir: uploadDirs.browserUploadDir,
     allowCometRestart: validateAllowRestart(env),
   });
 }
