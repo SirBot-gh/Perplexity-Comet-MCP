@@ -102,9 +102,17 @@ function validatePort(env: NodeJS.ProcessEnv): number {
   return port;
 }
 
+function defaultWindowsLocalAppData(platformInfo: Required<CometPlatformInfo>): string {
+  if (platformInfo.localAppData) return platformInfo.localAppData;
+  if (platformInfo.appData) return path.win32.join(platformInfo.appData, "..", "Local");
+
+  const userName = path.basename(platformInfo.homeDir.replace(/\\/g, "/")) || "agent";
+  return path.win32.join("C:\\Users", userName, "AppData", "Local");
+}
+
 function defaultAppSupportDir(platformInfo: Required<CometPlatformInfo>): string {
   if (isWindowsLike(platformInfo.platform)) {
-    return platformInfo.localAppData || platformInfo.appData || platformInfo.homeDir;
+    return defaultWindowsLocalAppData(platformInfo);
   }
   if (platformInfo.platform === "darwin") {
     return path.join(platformInfo.homeDir, "Library", "Application Support");
@@ -170,11 +178,22 @@ function isKnownPersonalBrowserProfile(
   return browserProfileMarkers.some((marker) => normalized.includes(marker));
 }
 
+function scopedJoin(
+  platformInfo: Required<CometPlatformInfo>,
+  parent: string,
+  child: string,
+): string {
+  return isWindowsLike(platformInfo.platform)
+    ? path.win32.join(parent, child)
+    : path.join(parent, child);
+}
+
 function validateUserDataDir(
   env: NodeJS.ProcessEnv,
   platformInfo: Required<CometPlatformInfo>,
 ): string {
-  const defaultValue = path.join(
+  const defaultValue = scopedJoin(
+    platformInfo,
     defaultAppSupportDir(platformInfo),
     "comet-mcp-agent-profile",
   );
@@ -192,7 +211,8 @@ function validateUploadDir(
   env: NodeJS.ProcessEnv,
   platformInfo: Required<CometPlatformInfo>,
 ): string {
-  const defaultValue = path.join(
+  const defaultValue = scopedJoin(
+    platformInfo,
     defaultAppSupportDir(platformInfo),
     "comet-mcp-uploads",
   );

@@ -53,6 +53,40 @@ describe("getCometConfig", () => {
     expect(userDataDir).not.toContain("/Perplexity/Comet");
   });
 
+  it("defaults WSL userDataDir and uploadDir to Windows profile paths when Windows env vars are absent", () => {
+    const wslConfig = getCometConfig({}, {
+      platform: "wsl",
+      homeDir: "/home/agent",
+      localAppData: "",
+      appData: "",
+    });
+
+    expect(wslConfig.userDataDir).toBe(
+      "C:\\Users\\agent\\AppData\\Local\\comet-mcp-agent-profile",
+    );
+    expect(wslConfig.uploadDir).toBe(
+      "C:\\Users\\agent\\AppData\\Local\\comet-mcp-uploads",
+    );
+    expect(wslConfig.userDataDir).not.toContain("/home/");
+    expect(wslConfig.uploadDir).not.toContain("/home/");
+  });
+
+  it("uses LOCALAPPDATA for WSL defaults when available", () => {
+    const wslConfig = getCometConfig({}, {
+      platform: "wsl",
+      homeDir: "/home/agent",
+      localAppData: "D:\\Users\\infra\\AppData\\Local",
+      appData: "D:\\Users\\infra\\AppData\\Roaming",
+    });
+
+    expect(wslConfig.userDataDir).toBe(
+      "D:\\Users\\infra\\AppData\\Local\\comet-mcp-agent-profile",
+    );
+    expect(wslConfig.uploadDir).toBe(
+      "D:\\Users\\infra\\AppData\\Local\\comet-mcp-uploads",
+    );
+  });
+
   it.each([
     "/",
     "/Users/tester",
