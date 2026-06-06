@@ -93,6 +93,23 @@ describe("getCometConfig", () => {
     );
   });
 
+  it("derives WSL defaults from the Windows user profile when available", () => {
+    const wslConfig = getCometConfig({}, {
+      platform: "wsl",
+      homeDir: "/home/wslagent",
+      localAppData: "",
+      appData: "",
+      windowsUserProfile: "C:\\Users\\Win User",
+    });
+
+    expect(wslConfig.userDataDir).toBe(
+      "C:\\Users\\Win User\\AppData\\Local\\comet-mcp-agent-profile",
+    );
+    expect(wslConfig.uploadDir).toBe(
+      "/mnt/c/Users/Win User/AppData/Local/comet-mcp-uploads",
+    );
+  });
+
   it("rejects non-Windows-visible WSL upload directories", () => {
     expect(() => getCometConfig({ COMET_UPLOAD_DIR: "/home/agent/uploads" }, {
       platform: "wsl",

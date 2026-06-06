@@ -1,4 +1,5 @@
 import { existsSync } from "fs";
+import { execSync } from "child_process";
 import { homedir, platform as osPlatform } from "os";
 import path from "path";
 
@@ -12,6 +13,7 @@ export interface CometPlatformInfo {
   homeDir?: string;
   localAppData?: string;
   appData?: string;
+  windowsUserProfile?: string;
 }
 
 export interface CometConfig {
@@ -24,12 +26,26 @@ export interface CometConfig {
   allowCometRestart: boolean;
 }
 
+function currentWindowsUserProfile(): string {
+  if (process.env.USERPROFILE) return process.env.USERPROFILE;
+  if (!isWsl()) return "";
+  try {
+    return execSync("cmd.exe /c echo %USERPROFILE%", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim().replace(/\r?\n/g, "");
+  } catch {
+    return "";
+  }
+}
+
 function currentPlatformInfo(): Required<CometPlatformInfo> {
   return {
     platform: osPlatform(),
     homeDir: homedir(),
     localAppData: process.env.LOCALAPPDATA ?? "",
     appData: process.env.APPDATA ?? "",
+    windowsUserProfile: currentWindowsUserProfile(),
   };
 }
 
@@ -42,6 +58,7 @@ function withDefaults(
     homeDir: platformInfo?.homeDir ?? current.homeDir,
     localAppData: platformInfo?.localAppData ?? current.localAppData,
     appData: platformInfo?.appData ?? current.appData,
+    windowsUserProfile: platformInfo?.windowsUserProfile ?? current.windowsUserProfile,
   };
 }
 
@@ -107,7 +124,8 @@ function defaultWindowsLocalAppData(platformInfo: Required<CometPlatformInfo>): 
   if (platformInfo.localAppData) return platformInfo.localAppData;
   if (platformInfo.appData) return path.win32.join(platformInfo.appData, "..", "Local");
 
-  const userName = path.basename(platformInfo.homeDir.replace(/\\/g, "/")) || "agent";
+  const profileRoot = platformInfo.windowsUserProfile || platformInfo.homeDir;
+  const userName = path.basename(profileRoot.replace(/\\/g, "/")) || "agent";
   return path.win32.join("C:\\Users", userName, "AppData", "Local");
 }
 
