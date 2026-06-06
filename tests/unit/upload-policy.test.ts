@@ -86,4 +86,16 @@ describe("toBrowserUploadPath", () => {
 
     expect(toBrowserUploadPath(insideFile, { uploadDir, browserUploadDir: uploadDir })).toBe(insideFile);
   });
+
+  it("maps files accepted through a symlinked staging directory", () => {
+    const { root, uploadDir, insideFile } = fixture();
+    const uploadDirLink = path.join(root, "uploads-link");
+    symlinkSync(uploadDir, uploadDirLink, "dir");
+    const validatedPath = resolveAllowedUploadPath(insideFile, { uploadDir: uploadDirLink });
+
+    expect(toBrowserUploadPath(validatedPath, {
+      uploadDir: uploadDirLink,
+      browserUploadDir: "/browser-visible/uploads-link",
+    })).toBe("/browser-visible/uploads-link/report with spaces.pdf");
+  });
 });

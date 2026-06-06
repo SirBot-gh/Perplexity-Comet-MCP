@@ -80,7 +80,14 @@ export function toBrowserUploadPath(
   }
 
   const normalizedFile = normalizeForContainment(localValidatedPath);
-  const normalizedUploadDir = normalizeForContainment(policy.uploadDir);
+  let uploadDirForMapping = policy.uploadDir;
+  try {
+    uploadDirForMapping = realpathSync(policy.uploadDir);
+  } catch {
+    // Configuration validation reports missing staging directories before
+    // upload, but keep this helper deterministic for pure path tests.
+  }
+  const normalizedUploadDir = normalizeForContainment(uploadDirForMapping);
   if (!isContainedWithin(normalizedFile, normalizedUploadDir)) {
     throw new Error("Validated upload file path must be under COMET_UPLOAD_DIR");
   }
