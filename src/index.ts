@@ -132,7 +132,6 @@ const TOOLS: Tool[] = [
           description: "If true, only checks if file inputs exist on the page without uploading",
         },
       },
-      required: ["filePath"],
     },
   },
 ];
@@ -746,16 +745,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const selector = args?.selector as string | undefined;
         const checkOnly = args?.checkOnly as boolean | undefined;
 
-        if (!filePath) {
-          return { content: [{ type: "text", text: "Error: filePath is required" }], isError: true };
-        }
-
-        let stagedPath: string | undefined;
-        if (!checkOnly) {
-          stagedPath = resolveAllowedUploadPath(filePath, { uploadDir: cometConfig.uploadDir });
-        }
-
-        // If checkOnly, just report what file inputs exist
         if (checkOnly) {
           const inputInfo = await cometClient.hasFileInput();
           if (inputInfo.found) {
@@ -767,6 +756,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             return { content: [{ type: "text", text: "No file input elements found on the current page. Navigate to a page with a file upload form first." }] };
           }
         }
+
+        if (!filePath) {
+          return { content: [{ type: "text", text: "Error: filePath is required" }], isError: true };
+        }
+
+        const stagedPath = resolveAllowedUploadPath(filePath, { uploadDir: cometConfig.uploadDir });
 
         // Perform the upload
         const browserUploadPath = toBrowserUploadPath(stagedPath!, {
