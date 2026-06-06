@@ -6,12 +6,12 @@
     "url": "https://github.com/RapierCraft/perplexity-comet-mcp",
     "source": "github"
   },
-  "version": "2.5.0",
+  "version": "2.6.2",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "perplexity-comet-mcp",
-      "version": "2.5.0",
+      "version": "2.6.2",
       "transport": {
         "type": "stdio"
       },
