@@ -4,7 +4,7 @@
 import CDP from "chrome-remote-interface";
 import { spawn, ChildProcess, execSync } from "child_process";
 import { platform } from "os";
-import { existsSync } from "fs";
+import { cometConfig, DEFAULT_PORT } from "./config.js";
 import type {
   CDPTarget,
   CDPVersion,
@@ -285,58 +285,9 @@ async function windowsFetch(url: string, method: string = 'GET'): Promise<{ ok: 
   }
 }
 
-// Detect platform and set appropriate Comet path
-function getCometPath(): string {
-  const os = platform();
-
-  // Check for custom path via environment variable
-  if (process.env.COMET_PATH) {
-    return process.env.COMET_PATH;
-  }
-
-  if (os === "darwin") {
-    return "/Applications/Comet.app/Contents/MacOS/Comet";
-  } else if (os === "win32" || IS_WSL) {
-    // Common Windows installation paths for Comet (Perplexity)
-    // For WSL, these paths won't be directly usable but we track them for reference
-    const possiblePaths = [
-      `${process.env.LOCALAPPDATA}\\Perplexity\\Comet\\Application\\comet.exe`,
-      `${process.env.APPDATA}\\Perplexity\\Comet\\Application\\comet.exe`,
-      "C:\\Program Files\\Perplexity\\Comet\\Application\\comet.exe",
-      "C:\\Program Files (x86)\\Perplexity\\Comet\\Application\\comet.exe",
-    ];
-
-    for (const p of possiblePaths) {
-      if (existsSync(p)) {
-        return p;
-      }
-    }
-
-    // Default to LOCALAPPDATA path
-    return `${process.env.LOCALAPPDATA}\\Perplexity\\Comet\\Application\\comet.exe`;
-  }
-
-  // Fallback for other platforms
-  return "/Applications/Comet.app/Contents/MacOS/Comet";
-}
-
-const COMET_PATH = getCometPath();
+const COMET_PATH = cometConfig.cometPath;
 const IS_WINDOWS = platform() === "win32" || IS_WSL;
-
-// Honour the documented `COMET_PORT` env var (see README "Environment Variables").
-// Previously the constant was hardcoded to 9223 and call sites passed the literal
-// straight to `startComet(9223)`, so the env var was silently ignored.
-function readPortFromEnv(): number {
-  const raw = process.env.COMET_PORT;
-  if (!raw) return 9223;
-  const n = parseInt(raw, 10);
-  if (!Number.isInteger(n) || n < 1 || n > 65535) {
-    console.error(`Invalid COMET_PORT="${raw}", falling back to 9223`);
-    return 9223;
-  }
-  return n;
-}
-export const DEFAULT_PORT = readPortFromEnv();
+export { DEFAULT_PORT };
 
 export class CometCDPClient {
   private client: CDP.Client | null = null;
@@ -1386,16 +1337,20 @@ export class CometCDPClient {
           // `client.once` (which auto-unsubscribes after one event) and
           // explicitly remove the listener when the timeout wins.
           const client = this.client!;
+          const eventClient = client as unknown as {
+            once(event: string, listener: () => void): void;
+            removeListener(event: string, listener: () => void): void;
+          };
           await new Promise<void>((resolve, reject) => {
             const onLoad = () => {
               clearTimeout(timer);
               resolve();
             };
             const timer = setTimeout(() => {
-              client.removeListener('Page.loadEventFired', onLoad);
+              eventClient.removeListener('Page.loadEventFired', onLoad);
               reject(new Error('Page load timeout'));
             }, 15000);
-            client.once('Page.loadEventFired', onLoad);
+            eventClient.once('Page.loadEventFired', onLoad);
           });
 
           this.state.currentUrl = url;
