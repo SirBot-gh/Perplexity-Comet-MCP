@@ -242,10 +242,16 @@ function validateUploadDirs(
     "COMET_UPLOAD_DIR",
     env.COMET_UPLOAD_DIR?.trim() || defaultLocalValue,
   );
+  const wslBrowserUploadDir = platformInfo.platform === "wsl"
+    ? wslMountToWindowsPath(uploadDir)
+    : undefined;
+  if (platformInfo.platform === "wsl" && !wslBrowserUploadDir) {
+    throw new Error("COMET_UPLOAD_DIR must be a Windows-visible /mnt/<drive>/... path when running under WSL");
+  }
   const browserUploadDir = requireAbsoluteNonRoot(
     "COMET_UPLOAD_DIR browser path",
     platformInfo.platform === "wsl"
-      ? wslMountToWindowsPath(uploadDir) ?? uploadDir
+      ? wslBrowserUploadDir!
       : uploadDir,
   );
 

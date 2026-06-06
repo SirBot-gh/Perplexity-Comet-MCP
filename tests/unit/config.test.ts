@@ -93,6 +93,15 @@ describe("getCometConfig", () => {
     );
   });
 
+  it("rejects non-Windows-visible WSL upload directories", () => {
+    expect(() => getCometConfig({ COMET_UPLOAD_DIR: "/home/agent/uploads" }, {
+      platform: "wsl",
+      homeDir: "/home/agent",
+      localAppData: "",
+      appData: "",
+    })).toThrow(/COMET_UPLOAD_DIR.*\/mnt/i);
+  });
+
   it.each([
     "/",
     "/Users/tester",

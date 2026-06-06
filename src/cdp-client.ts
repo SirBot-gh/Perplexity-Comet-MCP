@@ -244,7 +244,10 @@ export function buildCometLaunchArgs(config: CometConfig): string[] {
 }
 
 export function buildPowerShellArgumentListLiteral(args: string[]): string {
-  return `@(${args.map((arg) => `'${psSingleQuote(arg)}'`).join(',')})`;
+  return `@(${args.map((arg) => {
+    const startProcessArg = /\s/.test(arg) ? `"${arg}"` : arg;
+    return `'${psSingleQuote(startProcessArg)}'`;
+  }).join(',')})`;
 }
 
 export interface CometProcessState {

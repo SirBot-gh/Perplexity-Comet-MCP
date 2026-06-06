@@ -48,6 +48,17 @@ describe("buildPowerShellArgumentListLiteral", () => {
     expect(literal).toContain(`--user-data-dir=${baseConfig.userDataDir}`);
   });
 
+  it("embeds double quotes around PowerShell launch args that contain spaces", () => {
+    const literal = buildPowerShellArgumentListLiteral([
+      "--remote-debugging-port=9223",
+      "--user-data-dir=C:\\Users\\Jane Doe\\AppData\\Local\\comet-mcp-agent-profile",
+    ]);
+
+    expect(literal).toContain(
+      "'\"--user-data-dir=C:\\Users\\Jane Doe\\AppData\\Local\\comet-mcp-agent-profile\"'",
+    );
+  });
+
   it("rejects control characters before building a PowerShell literal", () => {
     expect(() => buildPowerShellArgumentListLiteral(["--ok", "bad\narg"])).toThrow(
       /control characters/i,
