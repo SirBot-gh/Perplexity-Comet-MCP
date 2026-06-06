@@ -4,7 +4,7 @@
 import CDP from "chrome-remote-interface";
 import { spawn, ChildProcess, execSync } from "child_process";
 import { platform } from "os";
-import { cometConfig, DEFAULT_PORT } from "./config.js";
+import { cometConfig, DEFAULT_PORT, type CometConfig } from "./config.js";
 import type {
   CDPTarget,
   CDPVersion,
@@ -233,6 +233,48 @@ function psSingleQuote(value: string): string {
     throw new Error('Refusing to pass control characters to PowerShell');
   }
   return value.replace(/'/g, "''");
+}
+
+export function buildCometLaunchArgs(config: CometConfig): string[] {
+  return [
+    `--remote-debugging-address=${config.host}`,
+    `--remote-debugging-port=${config.port}`,
+    `--user-data-dir=${config.userDataDir}`,
+  ];
+}
+
+export function buildPowerShellArgumentListLiteral(args: string[]): string {
+  return `@(${args.map((arg) => `'${psSingleQuote(arg)}'`).join(',')})`;
+}
+
+export interface CometProcessState {
+  isCometRunning: boolean;
+  hasDebugPort: boolean;
+  hasManagedProcess: boolean;
+}
+
+export type RestartDecision =
+  | { action: "reuse"; message?: string }
+  | { action: "launch"; message?: string }
+  | { action: "restart-managed"; message?: string }
+  | { action: "refuse"; message: string };
+
+export function shouldRestartComet(
+  config: CometConfig,
+  state: CometProcessState,
+): RestartDecision {
+  if (state.hasDebugPort) return { action: "reuse" };
+  if (!state.isCometRunning) return { action: "launch" };
+  if (config.allowCometRestart && state.hasManagedProcess) {
+    return { action: "restart-managed" };
+  }
+  return {
+    action: "refuse",
+    message:
+      `Comet is already running but CDP is not available on 127.0.0.1:${config.port}. ` +
+      `Close the existing Comet instance and retry, or set COMET_ALLOW_RESTART=1 ` +
+      `only when this MCP server launched and manages the Comet process.`,
+  };
 }
 
 // Windows/WSL-compatible fetch using PowerShell
@@ -520,7 +562,10 @@ export class CometCDPClient {
         await this.startComet(this.state.port);
         await new Promise(resolve => setTimeout(resolve, 2000));
       } catch {
-        throw new Error('Cannot connect to Comet. Ensure Comet is running with --remote-debugging-port=9222');
+        throw new Error(
+          `Cannot connect to Comet. Ensure Comet is running with ` +
+          buildCometLaunchArgs({ ...cometConfig, port: this.state.port }).join(' '),
+        );
       }
     }
 
@@ -920,22 +965,25 @@ export class CometCDPClient {
   }
 
   /**
-   * Kill any running Comet process
+   * Stop only the Comet process launched by this MCP server.
    */
-  private async killComet(): Promise<void> {
-    return new Promise((resolve) => {
-      if (IS_WINDOWS) {
-        // Windows: use taskkill to kill comet.exe
-        const kill = spawn('taskkill', ['/F', '/IM', 'comet.exe']);
-        kill.on('close', () => setTimeout(resolve, 1000));
-        kill.on('error', () => setTimeout(resolve, 1000));
-      } else {
-        // macOS/Linux: use pkill
-        const kill = spawn('pkill', ['-f', 'Comet.app']);
-        kill.on('close', () => setTimeout(resolve, 1000));
-        kill.on('error', () => setTimeout(resolve, 1000));
+  private async stopManagedComet(): Promise<void> {
+    const managed = this.cometProcess;
+    if (!managed || managed.killed) return;
+
+    await new Promise<void>((resolve) => {
+      managed.once('close', () => resolve());
+      managed.once('error', () => resolve());
+      try {
+        managed.kill();
+      } catch {
+        resolve();
       }
+      setTimeout(resolve, 1000);
     });
+    if (this.cometProcess === managed) {
+      this.cometProcess = null;
+    }
   }
 
   /**
@@ -943,6 +991,9 @@ export class CometCDPClient {
    */
   async startComet(port: number = DEFAULT_PORT): Promise<string> {
     this.state.port = port;
+    const runtimeConfig: CometConfig = { ...cometConfig, port };
+    const launchArgs = buildCometLaunchArgs(runtimeConfig);
+    const launchHint = `${COMET_PATH} ${launchArgs.join(' ')}`;
 
     // On WSL, use HTTP via PowerShell (WebSocket doesn't work across WSL/Windows boundary)
     if (IS_WSL) {
@@ -977,12 +1028,12 @@ export class CometCDPClient {
         throw new Error(`Invalid port for Comet launch: ${port}`);
       }
       const safeCometPath = psSingleQuote(cometPath);
-      const safePort = String(port);
 
       try {
         // Launch Comet via PowerShell
         // Use Set-Location to avoid UNC path issues when running from WSL
-        const psCommand = `Set-Location C:\\; Start-Process -FilePath '${safeCometPath}' -ArgumentList '--remote-debugging-port=${safePort}'`;
+        const psArgumentList = buildPowerShellArgumentListLiteral(launchArgs);
+        const psCommand = `Set-Location C:\\; Start-Process -FilePath '${safeCometPath}' -ArgumentList ${psArgumentList}`;
         spawn('powershell.exe', ['-NoProfile', '-Command', psCommand], {
           detached: true,
           stdio: 'ignore',
@@ -1008,7 +1059,7 @@ export class CometCDPClient {
             } else {
               reject(new Error(
                 `Timeout waiting for Comet. Tried to launch: ${cometPath}\n` +
-                `Try manually: powershell.exe -Command "Start-Process '${cometPath}' -ArgumentList '--remote-debugging-port=${port}'"`
+                `Try manually: powershell.exe -Command "Start-Process '${cometPath}' -ArgumentList ${buildPowerShellArgumentListLiteral(launchArgs)}"`
               ));
             }
           };
@@ -1036,7 +1087,7 @@ export class CometCDPClient {
         const isRunning = await this.isCometProcessRunning();
         if (!isRunning) {
           // Start Comet
-          this.cometProcess = spawn(COMET_PATH, [`--remote-debugging-port=${port}`], {
+          this.cometProcess = spawn(COMET_PATH, launchArgs, {
             detached: true,
             stdio: "ignore",
           });
@@ -1059,18 +1110,24 @@ export class CometCDPClient {
               if (attempts < maxAttempts) {
                 setTimeout(checkReady, 500);
               } else {
-                reject(new Error(`Timeout waiting for Comet. Try running: "${COMET_PATH}" --remote-debugging-port=${port}`));
+                reject(new Error(`Timeout waiting for Comet. Try running: ${launchHint}`));
               }
             };
 
             setTimeout(checkReady, 1500);
           });
         } else {
-          // Process running but CDP not accessible - need restart with debug port
-          await this.killComet();
-          await new Promise(r => setTimeout(r, 1000));
+          const decision = shouldRestartComet(runtimeConfig, {
+            isCometRunning: true,
+            hasDebugPort: false,
+            hasManagedProcess: Boolean(this.cometProcess),
+          });
+          if (decision.action !== "restart-managed") {
+            throw new Error(decision.action === "refuse" ? decision.message : "Refusing to restart unmanaged Comet");
+          }
+          await this.stopManagedComet();
 
-          this.cometProcess = spawn(COMET_PATH, [`--remote-debugging-port=${port}`], {
+          this.cometProcess = spawn(COMET_PATH, launchArgs, {
             detached: true,
             stdio: "ignore",
           });
@@ -1092,7 +1149,7 @@ export class CometCDPClient {
               if (attempts < maxAttempts) {
                 setTimeout(checkReady, 500);
               } else {
-                reject(new Error(`Timeout waiting for Comet. Try running: "${COMET_PATH}" --remote-debugging-port=${port}`));
+                reject(new Error(`Timeout waiting for Comet. Try running: ${launchHint}`));
               }
             };
 
@@ -1113,13 +1170,21 @@ export class CometCDPClient {
     } catch {
       const isRunning = await this.isCometProcessRunning();
       if (isRunning) {
-        await this.killComet();
+        const decision = shouldRestartComet(runtimeConfig, {
+          isCometRunning: true,
+          hasDebugPort: false,
+          hasManagedProcess: Boolean(this.cometProcess),
+        });
+        if (decision.action !== "restart-managed") {
+          throw new Error(decision.action === "refuse" ? decision.message : "Refusing to restart unmanaged Comet");
+        }
+        await this.stopManagedComet();
       }
     }
 
     // Start Comet
     return new Promise((resolve, reject) => {
-      this.cometProcess = spawn(COMET_PATH, [`--remote-debugging-port=${port}`], {
+      this.cometProcess = spawn(COMET_PATH, launchArgs, {
         detached: true,
         stdio: "ignore",
       });
@@ -1143,9 +1208,7 @@ export class CometCDPClient {
         if (attempts < maxAttempts) {
           setTimeout(checkReady, 500);
         } else {
-          const hint = IS_WINDOWS
-            ? `Try running: "${COMET_PATH}" --remote-debugging-port=${port}`
-            : `Try: ${COMET_PATH} --remote-debugging-port=${port}`;
+          const hint = `Try running: ${launchHint}`;
           reject(new Error(`Timeout waiting for Comet. ${hint}`));
         }
       };

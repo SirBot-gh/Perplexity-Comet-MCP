@@ -15,6 +15,9 @@ import {
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 import { cometClient, DEFAULT_PORT } from "./cdp-client.js";
+import { cometConfig } from "./config.js";
+import { resolveAllowedUploadPath } from "./upload-policy.js";
+import { getServerCapabilities } from "./server-metadata.js";
 import { cometAI } from "./comet-ai.js";
 import {
   sessionState,
@@ -112,13 +115,13 @@ const TOOLS: Tool[] = [
   },
   {
     name: "comet_upload",
-    description: "Upload a file to a file input on the current page. Use this to attach images, documents, or other files to forms, posts, or upload dialogs. The file must exist on the local filesystem.",
+    description: "Upload a staged file to a file input on the current page. The file must be an absolute path under COMET_UPLOAD_DIR; MCP clients should copy files into that staging directory before calling this tool.",
     inputSchema: {
       type: "object",
       properties: {
         filePath: {
           type: "string",
-          description: "Absolute path to the file to upload (e.g., '/home/user/image.png' or 'C:\\Users\\user\\image.png')",
+          description: "Absolute path to a regular file staged under COMET_UPLOAD_DIR",
         },
         selector: {
           type: "string",
@@ -136,7 +139,7 @@ const TOOLS: Tool[] = [
 
 const server = new Server(
   { name: "comet-bridge", version: SERVER_VERSION },
-  { capabilities: { tools: {} } }
+  { capabilities: getServerCapabilities() }
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
@@ -747,10 +750,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           return { content: [{ type: "text", text: "Error: filePath is required" }], isError: true };
         }
 
-        // Check if file exists
-        const fs = await import('fs');
-        if (!fs.existsSync(filePath)) {
-          return { content: [{ type: "text", text: `Error: File not found: ${filePath}` }], isError: true };
+        let stagedPath: string | undefined;
+        if (!checkOnly) {
+          stagedPath = resolveAllowedUploadPath(filePath, { uploadDir: cometConfig.uploadDir });
         }
 
         // If checkOnly, just report what file inputs exist
@@ -767,7 +769,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         // Perform the upload
-        const result = await cometClient.uploadFile(filePath, selector);
+        const result = await cometClient.uploadFile(stagedPath!, selector);
 
         if (result.success) {
           return { content: [{ type: "text", text: result.message }] };
