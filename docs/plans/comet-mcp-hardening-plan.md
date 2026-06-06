@@ -2,7 +2,7 @@
 
 ## Goal
 
-Create a safe, repeatable, source-reviewed MCP bridge for Argus/Research Agent infrastructure that can use Ben’s logged-in Perplexity Comet subscription for Deep Research and staged file uploads without exposing CDP broadly, touching personal browser profiles, killing unrelated Comet instances, or allowing arbitrary local file upload paths.
+Create a safe, repeatable, source-reviewed MCP bridge for Argus/Research Agent infrastructure that can use the operator’s logged-in Perplexity Comet subscription for Deep Research and staged file uploads without exposing CDP broadly, touching personal browser profiles, killing unrelated Comet instances, or allowing arbitrary local file upload paths.
 
 ## Architecture
 
@@ -168,7 +168,7 @@ Modify: `src/cdp-client.ts`
 Modify: `README.md`
 
 - Add “Dedicated Agent Profile” section.
-- State that the infrastructure Comet profile may be logged into Ben’s Perplexity subscription, but must not be Ben’s personal browsing profile.
+- State that the infrastructure Comet profile may be logged into the operator’s Perplexity subscription, but must not be a personal browsing profile.
 - Document `COMET_USER_DATA_DIR` override rules.
 
 Modify: `server.json`
@@ -389,8 +389,8 @@ Include:
 - Default `COMET_ALLOW_RESTART` is off.
 - How to initialize profile:
   1. Launch MCP once or manually launch Comet with the exact flags.
-  2. Log into Ben’s Perplexity subscription in the dedicated agent profile only.
-  3. Do not use Ben’s personal browsing profile.
+  2. Log into the operator’s Perplexity subscription in the dedicated agent profile only.
+  3. Do not use any personal browsing profile.
 - How Hermes/Research Agent stages uploads:
   1. Write or copy file into `COMET_UPLOAD_DIR`.
   2. Call `comet_upload` with that staged absolute path.
