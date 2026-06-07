@@ -250,6 +250,29 @@ export function buildPowerShellArgumentListLiteral(args: string[]): string {
   }).join(',')})`;
 }
 
+export interface CometProcessCheckCommand {
+  command: string;
+  args: string[];
+  matchText?: string;
+}
+
+export function getCometProcessCheckCommand(
+  currentPlatform: NodeJS.Platform = platform(),
+  isWsl: boolean = IS_WSL,
+): CometProcessCheckCommand {
+  if (currentPlatform === "win32" || isWsl) {
+    return {
+      command: "tasklist",
+      args: ["/FI", "IMAGENAME eq comet.exe", "/NH"],
+      matchText: "comet.exe",
+    };
+  }
+  return {
+    command: "pgrep",
+    args: ["-x", "Comet"],
+  };
+}
+
 export interface CometProcessState {
   isCometRunning: boolean;
   hasDebugPort: boolean;
@@ -947,23 +970,21 @@ export class CometCDPClient {
    * Check if Comet process is running
    */
   private async isCometProcessRunning(): Promise<boolean> {
+    const checkCommand = getCometProcessCheckCommand();
     return new Promise((resolve) => {
-      if (IS_WINDOWS) {
-        // Windows: use tasklist to check for comet.exe
-        const check = spawn('tasklist', ['/FI', 'IMAGENAME eq comet.exe', '/NH']);
-        let output = '';
+      const check = spawn(checkCommand.command, checkCommand.args);
+      let output = '';
+      if (checkCommand.matchText) {
         check.stdout?.on('data', (data) => { output += data.toString(); });
-        check.on('close', () => {
-          // If comet.exe is running, output will contain "comet.exe"
-          resolve(output.toLowerCase().includes('comet.exe'));
-        });
-        check.on('error', () => resolve(false));
-      } else {
-        // macOS/Linux: use pgrep
-        const check = spawn('pgrep', ['-f', 'Comet.app']);
-        check.on('close', (code) => resolve(code === 0));
-        check.on('error', () => resolve(false));
       }
+      check.on('close', (code) => {
+        if (checkCommand.matchText) {
+          resolve(output.toLowerCase().includes(checkCommand.matchText));
+        } else {
+          resolve(code === 0);
+        }
+      });
+      check.on('error', () => resolve(false));
     });
   }
 

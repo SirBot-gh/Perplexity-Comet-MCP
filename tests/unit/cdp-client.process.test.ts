@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldRestartComet } from "../../src/cdp-client.js";
+import { getCometProcessCheckCommand, shouldRestartComet } from "../../src/cdp-client.js";
 import type { CometConfig } from "../../src/config.js";
 
 const baseConfig: CometConfig = {
@@ -61,5 +61,31 @@ describe("shouldRestartComet", () => {
     for (const decision of decisions) {
       expect(JSON.stringify(decision)).not.toMatch(/pkill|taskkill|comet\.exe|Comet\.app/i);
     }
+  });
+});
+
+describe("getCometProcessCheckCommand", () => {
+  it("uses exact executable matching on macOS to avoid false positives from argv text", () => {
+    expect(getCometProcessCheckCommand("darwin", false)).toEqual({
+      command: "pgrep",
+      args: ["-x", "Comet"],
+      matchText: undefined,
+    });
+  });
+
+  it("uses exact process name matching on Linux instead of scanning full command lines", () => {
+    expect(getCometProcessCheckCommand("linux", false)).toEqual({
+      command: "pgrep",
+      args: ["-x", "Comet"],
+      matchText: undefined,
+    });
+  });
+
+  it("keeps Windows tasklist matching constrained to the image name", () => {
+    expect(getCometProcessCheckCommand("win32", false)).toEqual({
+      command: "tasklist",
+      args: ["/FI", "IMAGENAME eq comet.exe", "/NH"],
+      matchText: "comet.exe",
+    });
   });
 });
