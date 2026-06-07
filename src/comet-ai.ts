@@ -10,7 +10,7 @@ import { extractAgentStatus, type AgentStatusResult } from "./page-scripts.js";
  * CDP infrastructure to exercise the status-extraction logic. Methods
  * outside this set continue to use the module-level `cometClient`.
  */
-export type CometAIClient = Pick<typeof cometClient, "safeEvaluate" | "listTabsCategorized">;
+export type CometAIClient = Pick<typeof cometClient, "safeEvaluate" | "listTabsCategorized" | "insertText">;
 
 // Input selectors - contenteditable div is primary for Perplexity
 const INPUT_SELECTORS = [
@@ -61,32 +61,31 @@ export class CometAI {
     // the wrong element. Routing through the selector that the
     // discovery loop actually matched fixes that.
     const safeSelector = JSON.stringify(inputSelector);
-    const safePrompt = JSON.stringify(prompt);
     const result = await cometClient.evaluate(`
       (() => {
         const el = document.querySelector(${safeSelector});
         if (!el) return { success: false };
         el.focus();
-        // contenteditable path: execCommand keeps React's input bindings happy.
         if (el.isContentEditable) {
           document.execCommand('selectAll', false, null);
-          document.execCommand('insertText', false, ${safePrompt});
-          return { success: true };
-        }
-        // Form-control path: set value + fire input event.
-        if ('value' in el) {
-          el.value = ${safePrompt};
+        } else if ('value' in el) {
+          el.value = '';
           el.dispatchEvent(new Event('input', { bubbles: true }));
-          return { success: true };
         }
-        return { success: false };
+        return { success: document.activeElement === el };
       })()
     `);
-
-    const typed = (result.result.value as { success: boolean })?.success;
-    if (!typed) {
-      throw new Error("Failed to type into input element");
+    const focused = (result.result.value as { success?: boolean } | undefined)?.success;
+    if (!focused) {
+      throw new Error("Failed to focus input element");
     }
+
+    // Use CDP Input.insertText instead of Runtime DOM mutation. The current
+    // Perplexity composer is a Lexical contenteditable; direct
+    // execCommand/innerText mutation can appear to work in the DOM but fail
+    // Lexical/React state synchronization. CDP insertText follows the same
+    // browser input path as real typing.
+    await this.client.insertText(prompt);
 
     // Submit the prompt
     await this.submitPrompt();

@@ -1504,6 +1504,18 @@ export class CometCDPClient {
   }
 
   /**
+   * Insert text through the CDP Input domain.
+   *
+   * This exercises the same browser input plumbing as real typing and keeps
+   * modern Lexical/React contenteditable editors in sync better than directly
+   * mutating DOM text/HTML from Runtime.evaluate().
+   */
+  async insertText(text: string): Promise<void> {
+    this.ensureConnected();
+    await this.client!.Input.insertText({ text });
+  }
+
+  /**
    * Press a key
    */
   async pressKey(key: string): Promise<void> {
