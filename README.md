@@ -268,11 +268,11 @@ Returns: Current mode or confirmation of switch
 
 ### comet_upload
 
-Upload files to file input elements on web pages. Essential for posting images to social media, attaching files to forms, or uploading documents.
+Upload files to file input elements on web pages from a dedicated staging directory. MCP clients must first copy the file into `COMET_UPLOAD_DIR`, then call `comet_upload` with that staged absolute path.
 
 ```
 Parameters:
-  - filePath (required): Absolute path to the file to upload
+  - filePath (required): Absolute path to a regular file under COMET_UPLOAD_DIR
   - selector (optional): CSS selector for specific file input
   - checkOnly (optional): If true, only checks what file inputs exist
 
@@ -281,27 +281,34 @@ Returns: Success message or error with available inputs
 
 **Examples:**
 
+```bash
+# Stage an image before uploading
+mkdir -p "$COMET_UPLOAD_DIR"
+cp /path/to/screenshot.png "$COMET_UPLOAD_DIR/screenshot.png"
 ```
-# Upload an image to the first file input found
-> comet_upload filePath="/home/user/screenshot.png"
-File uploaded successfully: /home/user/screenshot.png
+
+```
+# Upload a staged image to the first file input found
+> comet_upload filePath="/absolute/path/to/comet-mcp-uploads/screenshot.png"
+File uploaded successfully: /absolute/path/to/comet-mcp-uploads/screenshot.png
 
 # Check what file inputs exist on the page
-> comet_upload filePath="dummy" checkOnly=true
+> comet_upload filePath="/absolute/path/to/comet-mcp-uploads/screenshot.png" checkOnly=true
 Found 2 file input(s) on the page:
   1. #image-upload
   2. input[name="attachment"]
 
 # Upload to a specific input
-> comet_upload filePath="/home/user/doc.pdf" selector="#attachment-input"
-File uploaded successfully: /home/user/doc.pdf
+> comet_upload filePath="/absolute/path/to/comet-mcp-uploads/doc.pdf" selector="#attachment-input"
+File uploaded successfully: /absolute/path/to/comet-mcp-uploads/doc.pdf
 ```
 
 **Workflow for posting images:**
-1. Navigate to the post creation page (e.g., Reddit, Twitter)
-2. Use `comet_upload checkOnly=true` to find file inputs
-3. Use `comet_upload filePath="..." selector="..."` to attach the file
-4. Continue with form submission
+1. Copy or write the file into `COMET_UPLOAD_DIR`
+2. Navigate to the post creation page (e.g., Reddit, X/Twitter)
+3. Use `comet_upload checkOnly=true` to find file inputs
+4. Use `comet_upload filePath="..." selector="..."` with the staged absolute path
+5. Continue with form submission
 
 ---
 
@@ -344,8 +351,12 @@ File uploaded successfully: /home/user/doc.pdf
 
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `COMET_HOST` | CDP bind/connect host. Only `127.0.0.1`/`localhost` accepted; launch normalizes to loopback. | `127.0.0.1` |
+| `COMET_PORT` | CDP debugging port. Must be `1024..65535`. | `9223` |
 | `COMET_PATH` | Custom path to Comet executable | Auto-detected |
-| `COMET_PORT` | CDP debugging port | 9223 |
+| `COMET_USER_DATA_DIR` | Dedicated agent Comet profile. Must be absolute and must not point at a personal/default browser profile. | OS-specific app-support dir |
+| `COMET_UPLOAD_DIR` | Dedicated staging directory for `comet_upload`; uploaded files must be under this directory. | OS-specific app-support dir |
+| `COMET_ALLOW_RESTART` | Optional managed restart (`1`/`true`). Default is off and never kills unrelated Comet processes. | `false` |
 
 ### Custom Comet Path
 
@@ -356,6 +367,53 @@ set COMET_PATH=C:\Custom\Path\comet.exe
 # macOS/Linux
 export COMET_PATH=/custom/path/to/Comet.app/Contents/MacOS/Comet
 ```
+
+---
+
+## Dedicated Agent Profile
+
+This server launches Comet with three safe flags:
+
+```text
+--remote-debugging-address=127.0.0.1
+--remote-debugging-port=<COMET_PORT>
+--user-data-dir=<COMET_USER_DATA_DIR>
+```
+
+Use a dedicated infrastructure/agent Comet profile for this MCP bridge. That profile may be logged into the operator's Perplexity subscription, but it must not be a personal browsing profile or a default Comet/Chrome/Edge/Brave profile. The server validates `COMET_USER_DATA_DIR` and rejects known personal browser profile locations.
+
+By default, if another Comet process is already running without CDP, the server refuses to kill it. To avoid terminating unrelated browser sessions, `COMET_ALLOW_RESTART=1` only permits restarting a Comet child process that this MCP server launched and is still tracking.
+
+## Argus / Research Agent Runbook
+
+Recommended environment on macOS infrastructure:
+
+```bash
+export COMET_HOST=127.0.0.1
+export COMET_PORT=9223
+export COMET_USER_DATA_DIR="$HOME/Library/Application Support/comet-mcp-agent-profile"
+export COMET_UPLOAD_DIR="$HOME/Library/Application Support/comet-mcp-uploads"
+export COMET_PATH="/Applications/Comet.app/Contents/MacOS/Comet"
+```
+
+Initialize the dedicated profile:
+
+1. Launch the MCP once with `comet_connect`, or manually launch Comet with the exact flags above.
+2. Log into the operator's Perplexity subscription in the dedicated agent profile only.
+3. Do not reuse a personal browsing profile.
+
+Upload workflow:
+
+1. Write or copy files into `COMET_UPLOAD_DIR`.
+2. Call `comet_upload` with the staged absolute path.
+3. Remove staged files after the run if retention is not required.
+
+Deep Research workflow:
+
+1. `comet_connect`
+2. `comet_mode mode="research"`
+3. `comet_ask prompt="..." timeout=...`
+4. `comet_poll` for long-running work when needed.
 
 ---
 

@@ -6,12 +6,12 @@
     "url": "https://github.com/RapierCraft/perplexity-comet-mcp",
     "source": "github"
   },
-  "version": "2.5.0",
+  "version": "2.6.2",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "perplexity-comet-mcp",
-      "version": "2.5.0",
+      "version": "2.6.2",
       "transport": {
         "type": "stdio"
       },
@@ -29,6 +29,34 @@
           "format": "string",
           "isSecret": false,
           "name": "COMET_PORT"
+        },
+        {
+          "description": "Loopback CDP host. Only 127.0.0.1/localhost are accepted; defaults to 127.0.0.1.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "COMET_HOST"
+        },
+        {
+          "description": "Dedicated agent Comet profile directory. Must be absolute and must not be a personal/default browser profile.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "COMET_USER_DATA_DIR"
+        },
+        {
+          "description": "Dedicated staging directory for comet_upload. Uploaded files must be absolute paths under this directory.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "COMET_UPLOAD_DIR"
+        },
+        {
+          "description": "Opt-in managed restart. Defaults off; when enabled, only the MCP-managed child process may be stopped.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false,
+          "name": "COMET_ALLOW_RESTART"
         }
       ]
     }
