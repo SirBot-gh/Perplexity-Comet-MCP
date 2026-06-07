@@ -16,6 +16,25 @@ export interface ProseState {
   lastText: string;
 }
 
+export function normalizeModeOptionText(value: string): string {
+  return (value || '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+export function modeOptionMatches(optionText: string, desiredLabel: string): boolean {
+  const normalize = (value: string) => (value || '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+  const option = normalize(optionText);
+  const wanted = normalize(desiredLabel);
+  return option === wanted || option.includes(wanted) || wanted.includes(option);
+}
+
 export function readProseState(): ProseState {
   const proseEls = document.querySelectorAll('[class*="prose"]');
   const lastProse = proseEls[proseEls.length - 1] as HTMLElement | undefined;

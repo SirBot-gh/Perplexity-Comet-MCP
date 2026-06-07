@@ -25,7 +25,7 @@ import {
   completeTask,
   isSessionStale,
 } from "./session-state.js";
-import { readProseState, type ProseState } from "./page-scripts.js";
+import { readProseState, modeOptionMatches, type ProseState } from "./page-scripts.js";
 
 // Read version from package.json so the MCP `initialize` handshake reports
 // the actually-shipped version. Hardcoding (previously "2.5.0" while
@@ -183,17 +183,19 @@ async function switchPerplexityMode(mode: PerplexityMode): Promise<string> {
   await sleep(500);
 
   const safeLabel = JSON.stringify(label);
+  const modeOptionMatchesSource = modeOptionMatches.toString();
   const selectResult = await cometClient.evaluate(`
     (() => {
-      const wanted = ${safeLabel}.toLowerCase();
-      const normalize = (s) => (s || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+      const wanted = ${safeLabel};
+      const modeOptionMatches = ${modeOptionMatchesSource};
+      const normalize = (s) => (s || '').replace(/[-_]+/g, ' ').replace(/\\s+/g, ' ').trim().toLowerCase();
       const candidates = Array.from(document.querySelectorAll('[role="menuitem"], [role="option"], button'));
       for (const item of candidates) {
-        const text = normalize(item.innerText || item.textContent || '');
+        const text = item.innerText || item.textContent || '';
         const rect = item.getBoundingClientRect();
-        if (text === wanted && rect.width > 0 && rect.height > 0) {
+        if (modeOptionMatches(text, wanted) && rect.width > 0 && rect.height > 0) {
           item.click();
-          return { success: true, selected: text };
+          return { success: true, selected: normalize(text) };
         }
       }
       return {

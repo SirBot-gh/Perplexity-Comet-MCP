@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { readProseState, extractAgentStatus } from "../../src/page-scripts.js";
+import { readProseState, extractAgentStatus, modeOptionMatches, normalizeModeOptionText } from "../../src/page-scripts.js";
 
 beforeEach(() => {
   document.body.innerHTML = "";
@@ -21,6 +21,17 @@ function markVisible(el: HTMLElement): void {
     },
   });
 }
+
+describe("mode option matching", () => {
+  it("normalizes hyphenated slash-menu labels", () => {
+    expect(normalizeModeOptionText("deep-research")).toBe("deep research");
+    expect(modeOptionMatches("deep-research", "Deep research")).toBe(true);
+  });
+
+  it("matches labels when UI text includes surrounding copy", () => {
+    expect(modeOptionMatches("Deep research\nSearch the web deeply", "Deep research")).toBe(true);
+  });
+});
 
 describe("readProseState", () => {
   it("returns count=0 and empty lastText for an empty DOM", () => {
