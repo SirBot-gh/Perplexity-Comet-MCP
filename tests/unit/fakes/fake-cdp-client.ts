@@ -52,4 +52,12 @@ export class FakeCdpClient implements CometAIClient {
   async listTabsCategorized(): Promise<CategorizedTabs> {
     return this.nextTabsResult;
   }
+
+  async insertText(_text: string): Promise<void> {
+    return;
+  }
+
+  async pressKey(_key: string): Promise<void> {
+    return;
+  }
 }

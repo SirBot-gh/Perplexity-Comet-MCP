@@ -57,7 +57,8 @@ const TOOLS: Tool[] = [
         prompt: { type: "string", description: "Question or task for Comet - focus on goals and context" },
         context: { type: "string", description: "Optional context to include (e.g., file contents, codebase info, marketing guidelines). This will be prefixed to the prompt to give Comet full context." },
         newChat: { type: "boolean", description: "Start a fresh conversation (default: false)" },
-        timeout: { type: "number", description: "Max wait time in ms (default: 120000 = 2min)" },
+        timeout: { type: "number", description: "Max wait time in ms (default: 120000 = 2min; research mode default: 600000 = 10min)" },
+        mode: { type: "string", enum: ["search", "research", "labs", "learn"], description: "Optional Perplexity mode to select before submitting. Use 'research' for Deep Research." },
       },
       required: ["prompt"],
     },
@@ -101,7 +102,7 @@ const TOOLS: Tool[] = [
   },
   {
     name: "comet_mode",
-    description: "Switch Perplexity search mode. Modes: 'search' (basic), 'research' (deep research), 'labs' (analytics/visualization), 'learn' (educational). Call without mode to see current mode.",
+    description: "Switch Perplexity search mode. Modes: 'search' (basic), 'research' (Deep Research), 'labs' (Model Council / analytics-style workflows), 'learn' (step-by-step learning). Call without mode to see current mode.",
     inputSchema: {
       type: "object",
       properties: {
@@ -140,6 +141,79 @@ const server = new Server(
   { name: "comet-bridge", version: SERVER_VERSION },
   { capabilities: getServerCapabilities() }
 );
+
+type PerplexityMode = "search" | "research" | "labs" | "learn";
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function switchPerplexityMode(mode: PerplexityMode): Promise<string> {
+  const modeLabels: Record<PerplexityMode, string> = {
+    search: "Search mode",
+    research: "Deep research",
+    labs: "Model council",
+    learn: "Learn step by step",
+  };
+  const label = modeLabels[mode];
+
+  // Perplexity moved mode selection from fixed aria-label buttons to a
+  // slash-command menu ("/" -> "Deep research", "Model council", etc.).
+  // Drive that path with real CDP input so React/Lexical state stays in sync.
+  const focusResult = await cometClient.evaluate(`
+    (() => {
+      const el = document.querySelector('[contenteditable="true"]') || document.querySelector('textarea');
+      if (!el) return { success: false, error: 'composer not found' };
+      el.focus();
+      if (el.isContentEditable) {
+        document.execCommand('selectAll', false, null);
+      } else if ('value' in el) {
+        el.value = '';
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      return { success: document.activeElement === el };
+    })()
+  `);
+  const focused = focusResult.result.value as { success?: boolean; error?: string } | undefined;
+  if (!focused?.success) {
+    throw new Error(`Failed to focus Perplexity composer: ${focused?.error || 'unknown error'}`);
+  }
+
+  await cometClient.insertText("/");
+  await sleep(500);
+
+  const safeLabel = JSON.stringify(label);
+  const selectResult = await cometClient.evaluate(`
+    (() => {
+      const wanted = ${safeLabel}.toLowerCase();
+      const normalize = (s) => (s || '').replace(/\\s+/g, ' ').trim().toLowerCase();
+      const candidates = Array.from(document.querySelectorAll('[role="menuitem"], [role="option"], button'));
+      for (const item of candidates) {
+        const text = normalize(item.innerText || item.textContent || '');
+        const rect = item.getBoundingClientRect();
+        if (text === wanted && rect.width > 0 && rect.height > 0) {
+          item.click();
+          return { success: true, selected: text };
+        }
+      }
+      return {
+        success: false,
+        error: 'mode option not found',
+        visibleOptions: candidates
+          .map((item) => normalize(item.innerText || item.textContent || ''))
+          .filter(Boolean)
+          .slice(-20),
+      };
+    })()
+  `);
+  const selected = selectResult.result.value as { success?: boolean; error?: string; visibleOptions?: string[] } | undefined;
+  if (!selected?.success) {
+    throw new Error(`Failed to select ${label}: ${selected?.error || 'unknown error'} ${JSON.stringify(selected?.visibleOptions || [])}`);
+  }
+
+  await sleep(500);
+  return label;
+}
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
 
@@ -187,7 +261,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "comet_ask": {
         let prompt = args?.prompt as string;
         const context = args?.context as string | undefined;
-        const maxTimeout = (args?.timeout as number) || 120000; // Max 2 minutes safety net
+        const requestedMode = args?.mode as PerplexityMode | undefined;
+        if (requestedMode && !["search", "research", "labs", "learn"].includes(requestedMode)) {
+          return { content: [{ type: "text", text: `Invalid mode: ${requestedMode}. Use: search, research, labs, learn` }], isError: true };
+        }
+        const maxTimeout = (args?.timeout as number) || (requestedMode === "research" ? 600000 : 120000);
         const newChat = (args?.newChat as boolean) || false;
 
         // Validate prompt
@@ -240,7 +318,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const needsAgenticBrowsing = hasUrl || hasWebsiteRef || hasSiteNames;
 
         // If prompt needs browser action but doesn't have agentic language, add it
-        if (needsAgenticBrowsing) {
+        if (needsAgenticBrowsing && requestedMode !== "research") {
           const alreadyAgentic = /^(use your browser|using your browser|open a browser|navigate to|browse to)/i.test(prompt);
           if (!alreadyAgentic) {
             // Transform to agentic prompt
@@ -298,6 +376,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             await cometClient.navigate("https://www.perplexity.ai/", true);
             await new Promise(resolve => setTimeout(resolve, 2000));
           }
+        }
+
+        // Select requested Perplexity mode after any navigation/new-chat reset
+        // and before snapshotting old response state / sending the prompt.
+        if (requestedMode) {
+          await switchPerplexityMode(requestedMode);
         }
 
         // Reset stability tracking for new prompt
@@ -609,39 +693,38 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case "comet_mode": {
-        const mode = args?.mode as string | undefined;
+        const mode = args?.mode as PerplexityMode | undefined;
 
-        // If no mode provided, show current mode
+        // If no mode provided, show likely current mode using the visible composer chip.
         if (!mode) {
           const result = await cometClient.evaluate(`
             (() => {
-              // Try button group first (wide screen)
-              const modes = ['Search', 'Research', 'Labs', 'Learn'];
-              for (const mode of modes) {
-                const btn = document.querySelector('button[aria-label="' + mode + '"]');
-                if (btn && btn.getAttribute('data-state') === 'checked') {
-                  return mode.toLowerCase();
-                }
+              const labels = [
+                ['research', 'Deep research'],
+                ['labs', 'Model council'],
+                ['learn', 'Learn step by step'],
+                ['search', 'Search'],
+              ];
+              const visibleText = Array.from(document.querySelectorAll('button, [role="button"]'))
+                .filter((el) => {
+                  const r = el.getBoundingClientRect();
+                  return r.width > 0 && r.height > 0;
+                })
+                .map((el) => (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim())
+                .join('\n');
+              for (const [mode, label] of labels) {
+                if (visibleText.includes(label)) return mode;
               }
-              // Try dropdown (narrow screen) - look for the mode selector button
-              const dropdownBtn = document.querySelector('button[class*="gap"]');
-              if (dropdownBtn) {
-                const text = dropdownBtn.innerText.toLowerCase();
-                if (text.includes('search')) return 'search';
-                if (text.includes('research')) return 'research';
-                if (text.includes('labs')) return 'labs';
-                if (text.includes('learn')) return 'learn';
-              }
-              return 'search';
+              return 'unknown';
             })()
           `);
 
           const currentMode = result.result.value as string;
           const descriptions: Record<string, string> = {
             search: 'Basic web search',
-            research: 'Deep research with comprehensive analysis',
-            labs: 'Analytics, visualizations, and coding',
-            learn: 'Educational content and explanations'
+            research: 'Deep Research',
+            labs: 'Model Council / analytics-style workflows',
+            learn: 'Step-by-step educational content'
           };
 
           let output = `Current mode: ${currentMode}\n\nAvailable modes:\n`;
@@ -653,15 +736,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           return { content: [{ type: "text", text: output }] };
         }
 
-        // Switch mode
-        const modeMap: Record<string, string> = {
-          search: "Search",
-          research: "Research",
-          labs: "Labs",
-          learn: "Learn",
-        };
-        const ariaLabel = modeMap[mode];
-        if (!ariaLabel) {
+        if (!["search", "research", "labs", "learn"].includes(mode)) {
           return {
             content: [{ type: "text", text: `Invalid mode: ${mode}. Use: search, research, labs, learn` }],
             isError: true,
@@ -672,69 +747,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const state = cometClient.currentState;
         if (!state.currentUrl?.includes("perplexity.ai")) {
           await cometClient.navigate("https://www.perplexity.ai/", true);
+          await sleep(1500);
         }
 
-        // Try both UI patterns: button group (wide) and dropdown (narrow)
-        const result = await cometClient.evaluate(`
-          (() => {
-            // Strategy 1: Direct button (wide screen)
-            const btn = document.querySelector('button[aria-label="${ariaLabel}"]');
-            if (btn) {
-              btn.click();
-              return { success: true, method: 'button' };
-            }
-
-            // Strategy 2: Dropdown menu (narrow screen)
-            // Find and click the dropdown trigger (button with current mode text)
-            const allButtons = document.querySelectorAll('button');
-            for (const b of allButtons) {
-              const text = b.innerText.toLowerCase();
-              if ((text.includes('search') || text.includes('research') ||
-                   text.includes('labs') || text.includes('learn')) &&
-                  b.querySelector('svg')) {
-                b.click();
-                return { success: true, method: 'dropdown-open', needsSelect: true };
-              }
-            }
-
-            return { success: false, error: "Mode selector not found" };
-          })()
-        `);
-
-        const clickResult = result.result.value as { success: boolean; method?: string; needsSelect?: boolean; error?: string };
-
-        if (clickResult.success && clickResult.needsSelect) {
-          // Wait for dropdown to open, then select the mode
-          await new Promise(resolve => setTimeout(resolve, 300));
-          // `mode` was validated against modeMap above, but encode anyway to
-          // guarantee any future caller cannot inject JS via this template.
-          const safeMode = JSON.stringify(mode);
-          const selectResult = await cometClient.evaluate(`
-            (() => {
-              // Look for dropdown menu items
-              const items = document.querySelectorAll('[role="menuitem"], [role="option"], button');
-              for (const item of items) {
-                if (item.innerText.toLowerCase().includes(${safeMode})) {
-                  item.click();
-                  return { success: true };
-                }
-              }
-              return { success: false, error: "Mode option not found in dropdown" };
-            })()
-          `);
-          const selectRes = selectResult.result.value as { success: boolean; error?: string };
-          if (selectRes.success) {
-            return { content: [{ type: "text", text: `Switched to ${mode} mode` }] };
-          } else {
-            return { content: [{ type: "text", text: `Failed: ${selectRes.error}` }], isError: true };
-          }
-        }
-
-        if (clickResult.success) {
-          return { content: [{ type: "text", text: `Switched to ${mode} mode` }] };
-        } else {
+        try {
+          const selectedLabel = await switchPerplexityMode(mode);
+          return { content: [{ type: "text", text: `Switched to ${mode} mode (${selectedLabel})` }] };
+        } catch (error) {
           return {
-            content: [{ type: "text", text: `Failed to switch mode: ${clickResult.error}` }],
+            content: [{ type: "text", text: `Failed to switch mode: ${error instanceof Error ? error.message : String(error)}` }],
             isError: true,
           };
         }

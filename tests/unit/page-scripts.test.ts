@@ -82,6 +82,21 @@ describe("extractAgentStatus", () => {
     expect(result.response.length).toBeGreaterThan(0);
   });
 
+  it("does not treat idle animate-pulse decoration as an active loading spinner", () => {
+    document.body.innerHTML = `
+      <main>
+        <div class="animate-pulse">decorative Perplexity brand shimmer</div>
+        <div>Reviewed 4 sources</div>
+        <div class="prose">This is a completed deep research answer with enough content to be detected as the final response.</div>
+      </main>
+    `;
+
+    const result = extractAgentStatus();
+    expect(result.status).toBe("completed");
+    expect(result.hasStopButton).toBe(false);
+    expect(result.response).toContain("completed deep research answer");
+  });
+
   it("returns 'completed' for Russian singular 'Выполнен 1 шаг'", () => {
     const main = document.createElement("main");
     const m = document.createElement("div");

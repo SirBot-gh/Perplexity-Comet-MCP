@@ -10,7 +10,7 @@ import { extractAgentStatus, type AgentStatusResult } from "./page-scripts.js";
  * CDP infrastructure to exercise the status-extraction logic. Methods
  * outside this set continue to use the module-level `cometClient`.
  */
-export type CometAIClient = Pick<typeof cometClient, "safeEvaluate" | "listTabsCategorized" | "insertText">;
+export type CometAIClient = Pick<typeof cometClient, "safeEvaluate" | "listTabsCategorized" | "insertText" | "pressKey">;
 
 // Input selectors - contenteditable div is primary for Perplexity
 const INPUT_SELECTORS = [
@@ -115,7 +115,27 @@ export class CometAI {
       throw new Error("Prompt text not found in input - typing may have failed");
     }
 
-    // Strategy 1: Simulate Enter key via DOM events (most reliable for contenteditable)
+    // Strategy 1: Send a real CDP Enter key. Perplexity's current composer is
+    // a Lexical/React contenteditable; browser-level Input events keep React
+    // state synchronized more reliably than synthetic DOM KeyboardEvents.
+    await this.client.pressKey("Enter");
+
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    // Check if submission worked
+    const submittedAfterCdpEnter = await cometClient.evaluate(`
+      (() => {
+        const el = document.querySelector('[contenteditable="true"]');
+        // If input is empty or nearly empty, submission worked
+        if (el && el.innerText.trim().length < 5) return true;
+        const hasLoading = document.querySelector('[class*="animate-spin"], [class*="loading"], [class*="thinking"]') !== null;
+        const hasThinking = document.body.innerText.includes('Thinking');
+        return hasLoading || hasThinking;
+      })()
+    `);
+    if (submittedAfterCdpEnter.result.value) return;
+
+    // Strategy 2: Simulate Enter key via DOM events as a compatibility fallback.
     const enterResult = await cometClient.evaluate(`
       (() => {
         const el = document.querySelector('[contenteditable="true"]') ||
@@ -159,7 +179,7 @@ export class CometAI {
         // If input is empty or nearly empty, submission worked
         if (el && el.innerText.trim().length < 5) return true;
         // Check for loading indicators
-        const hasLoading = document.querySelector('[class*="animate-spin"], [class*="animate-pulse"]') !== null;
+        const hasLoading = document.querySelector('[class*="animate-spin"], [class*="loading"], [class*="thinking"]') !== null;
         const hasThinking = document.body.innerText.includes('Thinking');
         return hasLoading || hasThinking;
       })()

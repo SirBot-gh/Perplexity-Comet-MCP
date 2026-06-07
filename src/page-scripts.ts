@@ -59,7 +59,11 @@ export function extractAgentStatus(): AgentStatusResult {
   // More comprehensive loading detection
   const hasLoadingSpinner =
     document.querySelector(
-      '[class*="animate-spin"], [class*="animate-pulse"], [class*="loading"], [class*="thinking"]'
+      // Do NOT include `animate-pulse`: Perplexity uses pulsing brand / UI
+      // decorations on otherwise-idle and completed pages, which made deep
+      // research polling report "working" forever even after a final answer
+      // rendered. Keep this limited to actual progress indicators.
+      '[class*="animate-spin"], [class*="loading"], [class*="thinking"]'
     ) !== null;
 
   // Check for "Thinking" indicator specifically
